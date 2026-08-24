@@ -1,0 +1,3 @@
+services:
+  pacmap:
+    network_mode: host

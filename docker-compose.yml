@@ -1,0 +1,12 @@
+services:
+  pacmap:
+    build: .
+    image: pacmap:local
+    container_name: pacmap
+    network_mode: host
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    environment:
+      PACMAP_IFACE: ${PACMAP_IFACE:-}
+    restart: unless-stopped

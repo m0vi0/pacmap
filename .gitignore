@@ -1,35 +1,9 @@
-# dependencies
-node_modules/
-venv/
 .venv/
-
-# build outputs
-client/dist/
+venv/
+node_modules/
 dist/
-
-# Python
 __pycache__/
-*.py[cod]
-
-# local logs and caches
-*.log
+*.pyc
 .DS_Store
 .env
 .env.*
-
-# editor
-.vscode/
-.idea/
-
-# local app artifacts
-*.app/
-.gitnexus
-.claude/
-AGENTS.md
-CLAUDE.md
-.agents/
-.agents
-v3.mov
-
-*.mov
-*.mp4
