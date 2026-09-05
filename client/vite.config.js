@@ -18,4 +18,15 @@ export default defineConfig({
       '@': path.resolve(process.cwd(), 'src'),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('three')) return 'three'
+          if (id.includes('node_modules/react')) return 'vendor'
+          if (id.includes('node_modules/@radix-ui') || id.includes('node_modules/tailwind')) return 'ui'
+        },
+      },
+    },
+  },
 })
