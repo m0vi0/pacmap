@@ -9,7 +9,7 @@ from collections import defaultdict
 from urllib.parse import urlparse
 
 import websockets
-from scapy.all import DNS, Ether, IP, TCP, UDP, sniff
+from scapy.all import DNS, ARP, Ether, IP, TCP, UDP, sniff
 
 clients = set()
 ALLOWED_ORIGINS = {
@@ -86,6 +86,21 @@ def broadcast_from_thread(payload):
 
 
 def packet_callback(packet):
+    # ARP reply — definitive "this host exists" signal on a LAN.
+    if packet.haslayer(ARP):
+        arp = packet.getlayer(ARP)
+        sender_ip = arp.psrc
+        sender_mac = arp.hwsrc
+        op = int(arp.op)
+        if sender_ip and sender_ip != '0.0.0.0' and op == 2:
+            broadcast_from_thread({
+                'type': 'host_alive',
+                'ip': sender_ip,
+                'mac': sender_mac,
+                'timestamp': time.time(),
+            })
+        return
+
     if not packet.haslayer(IP):
         return
 
@@ -135,7 +150,7 @@ def start_sniff():
 
     print(f"Starting packet capture on {iface_label()}...")
     try:
-        sniff_kwargs = {"prn": packet_callback, "store": False, "filter": "ip", "promisc": False}
+        sniff_kwargs = {"prn": packet_callback, "store": False, "filter": "arp or ip", "promisc": False}
         if iface:
             sniff_kwargs["iface"] = iface
         sniff(**sniff_kwargs)

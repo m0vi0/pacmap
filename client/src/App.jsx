@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { classifyIp, serializeCheckpoint, computeCheckpointDiff, fmtBytes } from './checkpointEngine.js'
+import { classifyIp, serializeCheckpoint, computeCheckpointDiff, fmtBytes, nodeRealness } from './checkpointEngine.js'
 import './App.css'
 
 const WS_URL = import.meta.env.VITE_WS_URL || (import.meta.env.PROD
@@ -916,6 +916,10 @@ export default function App() {
 
   const screensaverActiveRef = useRef(false)
   const [screensaverActive, setScreensaverActive] = useState(false)
+  const [, startTransition] = useTransition()
+  const [showUnconfirmed, setShowUnconfirmed] = useState(true)
+  const showUnconfirmedRef = useRef(true)
+  const confirmedMacsRef = useRef(new Map())
   const screensaverRef = useRef({ timer: null, spinAngle: 0 })
   const [activeTab, setActiveTab] = useState('live')
   const [appMode, setAppMode] = useState('live')
@@ -1274,7 +1278,9 @@ export default function App() {
 
     analysisSnapshotTimerRef.current = window.setTimeout(() => {
       analysisSnapshotTimerRef.current = null
-      setAnalysisSnapshot(buildTrafficAnalysis(filteredPacketsRef.current, replayMeta, conversationSort))
+      startTransition(() => {
+        setAnalysisSnapshot(buildTrafficAnalysis(filteredPacketsRef.current, replayMeta, conversationSort))
+      })
     }, ANALYSIS_SNAPSHOT_MS)
 
     return () => {
@@ -1298,6 +1304,9 @@ export default function App() {
   useEffect(() => {
     autoCheckpointModeRef.current = autoCheckpointMode
   }, [autoCheckpointMode])
+  useEffect(() => {
+    showUnconfirmedRef.current = showUnconfirmed
+  }, [showUnconfirmed])
   // Flush feed queue to state every 500ms (batch updates from Three.js closure)
   useEffect(() => {
     const interval = setInterval(() => {
@@ -1616,6 +1625,8 @@ export default function App() {
         vz: 0,
         bytes: 0,
         packets: 0,
+        packetsTx: 0,
+        packetsRx: 0,
         recentBytes: 0,
         renderScale: 1,
         clusterAnchor: clusterAnchor(ip, dnsServerIpsRef.current),
@@ -1846,15 +1857,26 @@ export default function App() {
       const srcNode = ensureNode(src)
       const dstNode = ensureNode(dst)
 
-      // Feature 7 — new host alerts + auto-checkpoint
+      // Apply metadata + directed counters BEFORE realness checks below.
+      if (packet.srcMac) srcNode.mac = packet.srcMac
+      if (packet.dstMac) dstNode.mac = packet.dstMac
+      srcNode.packetsTx += 1
+      dstNode.packetsRx += 1
+
+      // Feature 7 — new host alerts + auto-checkpoint (only for CONFIRMED hosts,
+      // not rx-only phantom scan targets).
+      const srcReal = nodeRealness(srcNode).status
+      const dstReal = nodeRealness(dstNode).status
       if (!seenIpsRef.current.has(src)) {
         seenIpsRef.current.add(src)
         alertsRef.current.push({ type: 'newHost', ip: src, ts: Date.now(), label: 'New Host' })
         if (alertsRef.current.length > 20) alertsRef.current.shift()
         const kind = classifyIp(src)
-        if (kind !== 'multicast' && kind !== 'broadcast' && kind !== 'loopback') {
+        if (srcReal === 'confirmed' && kind !== 'multicast' && kind !== 'broadcast' && kind !== 'loopback') {
           queueAutoCheckpointRef.current?.('New host discovered')
           pushFeedEventRef.current?.({ type: 'new-host', ip: src, reason: `New host: ${src}`, severity: 'info' })
+        } else if (srcReal === 'unconfirmed') {
+          pushFeedEventRef.current?.({ type: 'probe-target', ip: src, reason: `Probe target (unresponsive): ${src}`, severity: 'low' })
         }
       }
       if (!seenIpsRef.current.has(dst)) {
@@ -1862,9 +1884,11 @@ export default function App() {
         alertsRef.current.push({ type: 'newHost', ip: dst, ts: Date.now(), label: 'New Host' })
         if (alertsRef.current.length > 20) alertsRef.current.shift()
         const kind = classifyIp(dst)
-        if (kind !== 'multicast' && kind !== 'broadcast' && kind !== 'loopback') {
+        if (dstReal === 'confirmed' && kind !== 'multicast' && kind !== 'broadcast' && kind !== 'loopback') {
           queueAutoCheckpointRef.current?.('New host discovered')
           pushFeedEventRef.current?.({ type: 'new-host', ip: dst, reason: `New host: ${dst}`, severity: 'info' })
+        } else if (dstReal === 'unconfirmed') {
+          pushFeedEventRef.current?.({ type: 'probe-target', ip: dst, reason: `Probe target (unresponsive): ${dst}`, severity: 'low' })
         }
       }
       const edge = ensureEdge(src, dst)
@@ -1881,8 +1905,6 @@ export default function App() {
           pushFeedEventRef.current?.({ type: 'external', ip: extIp, reason: `External: ${extIp}`, severity: 'warn' })
         }
       }
-      if (packet.srcMac) srcNode.mac = packet.srcMac
-      if (packet.dstMac) dstNode.mac = packet.dstMac
 
       srcNode.bytes += size
       srcNode.packets += 1
@@ -1922,6 +1944,21 @@ export default function App() {
       const maxEdgeBytes = Math.max(...edgeList.map(e => e.bytes), 1)
 
       nodeList.forEach((node) => {
+        // Apply any ARP-confirmed MAC from the server before realness check.
+        const confirmedMac = confirmedMacsRef.current.get(node.ip)
+        if (confirmedMac && !node.mac) node.mac = confirmedMac
+        const rr = nodeRealness(node)
+        const isGhost = rr.status === 'unconfirmed'
+        const ghostDim = isGhost ? 0.22 : 1
+        const visibleNow = !isGhost || showUnconfirmedRef.current
+        if (!visibleNow) {
+          node.mesh.visible = false
+          node.ring.visible = false
+          node.label.visible = false
+          return
+        }
+        node.mesh.visible = true
+        node.ring.visible = true
         const labelsEnabled = showLabelsRef.current
         const depth = hasFocus ? depths.get(node.ip) : 0
         const visibleWeight = hasFocus
@@ -1937,8 +1974,9 @@ export default function App() {
           : 0
         refreshNodeLabel(node)
         node.group.position.set(node.x, node.y, node.z)
-        node.mesh.scale.lerp(_scaleVec.setScalar(scale + pulse + diffScalePulse), 0.18)
-        node.mesh.material.opacity = THREE.MathUtils.lerp(node.mesh.material.opacity, visibleWeight, 0.12)
+        node.mesh.scale.lerp(_scaleVec.setScalar((scale * (isGhost ? 0.7 : 1)) + pulse + diffScalePulse), 0.18)
+        node.mesh.material.opacity = THREE.MathUtils.lerp(node.mesh.material.opacity, visibleWeight * ghostDim, 0.12)
+        node.ring.material.color.set(isGhost ? 0x94a3b8 : 0x60a5fa)
         node.label.visible = labelsEnabled
         const importance = Math.log10(node.bytes + 1) / Math.log10(maxBytes + 1)
         const importanceOpacity = THREE.MathUtils.clamp(importance, 0.08, 1)
@@ -2407,7 +2445,9 @@ export default function App() {
         if (livePacketFlushRef.current === null) {
           livePacketFlushRef.current = window.setTimeout(() => {
             livePacketFlushRef.current = null
-            setLivePackets([...livePacketsRef.current])
+            startTransition(() => {
+              setLivePackets([...livePacketsRef.current])
+            })
           }, LIVE_PACKET_UI_FLUSH_MS)
         }
         if (appModeRef.current === 'live' && activeSourceRef.current === 'live' && activeProtocolsRef.current.has(packetProtocolGroup(packet)) && packetMatchesFilter(packet, activeFilterRef.current) && !timeRangeRef.current && !liveTimeRef.current) {
@@ -2423,6 +2463,9 @@ export default function App() {
           setStatus('capture_error')
           console.warn('Capture error:', data.message || 'unknown error')
         }
+      }
+      if (data.type === 'host_alive') {
+        confirmedMacsRef.current.set(data.ip, data.mac)
       }
     })
 
@@ -3000,6 +3043,22 @@ export default function App() {
               </button>
             </div>
 
+            {/* Ghosts toggle */}
+            <div className="dockDivider" />
+            <div className="dockFilterSection">
+              <div className="dockSectionHeader">
+                <span className="dockSectionLabel">Unconfirmed</span>
+                <button
+                  type="button"
+                  className={`ghostToggle${showUnconfirmed ? ' active' : ''}`}
+                  onClick={() => setShowUnconfirmed(v => !v)}
+                  title="Show unconfirmed (possibly phantom) nodes"
+                >
+                  {showUnconfirmed ? 'visible' : 'hidden'}
+                </button>
+              </div>
+            </div>
+
             {/* Protocol filter tray */}
             <div className="dockDivider" />
             <div className="dockFilterSection">
@@ -3130,6 +3189,13 @@ export default function App() {
                     </ul>
                   )}
                 </div>
+                {activeFilter.raw && (
+                  <span className="activeFilterChip">
+                    {activeFilter.raw}
+                    <button type="button" onClick={() => { setFilterInput(''); setActiveFilter({ raw: '', type: 'all' }) }}>×</button>
+                  </span>
+                )}
+                {filterError && <p className="filterError">{filterError}</p>}
                 <div className="filterBarCheckpoints">
                   {labelingOpen
                     ? (
@@ -3421,6 +3487,19 @@ export default function App() {
                               onClick={() => setAutoCheckpointMode(m)}
                             >{m}</button>
                           ))}
+                          {filteredCheckpoints.length >= 2 && (
+                            <button
+                              type="button"
+                              className="diffShortcut"
+                              onClick={() => {
+                                const [first, second] = filteredCheckpoints.slice().reverse()
+                                computeDiff(first.id, second.id)
+                              }}
+                              title="Compare last two checkpoints"
+                            >
+                              ↔ Diff
+                            </button>
+                          )}
                         </div>
                         <div className="checkpointList">
                           {filteredCheckpoints.length === 0 && (

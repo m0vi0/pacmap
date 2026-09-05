@@ -2643,6 +2643,40 @@ button.diffNodeRow:hover { background: var(--surface2); }
   text-transform: capitalize;
   transition: background 0.1s, color 0.1s;
 }
+.cpModeSelector .diffShortcut {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.cpModeSelector .diffShortcut:hover {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+/* ── Active filter chip ────────────────────────────── */
+
+.activeFilterChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 0.6rem;
+  background: rgba(96, 165, 250, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(96, 165, 250, 0.3);
+}
+.activeFilterChip button {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  font-size: 0.7rem;
+  line-height: 1;
+  opacity: 0.7;
+}
+.activeFilterChip button:hover { opacity: 1; }
 .cpModeSelector button.active {
   background: var(--accent);
   color: #fff;
@@ -2837,4 +2871,20 @@ button.diffNodeRow:hover { background: var(--surface2); }
   font-size: 0.7rem;
   color: var(--text-dimmer);
   font-style: italic;
+}
+
+/* Ghost (unconfirmed node) toggle */
+.ghostToggle {
+  padding: 4px 10px;
+  border-radius: 5px;
+  font-size: 0.6rem;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.ghostToggle.active {
+  border-color: var(--accent, #60a5fa);
+  color: var(--accent, #60a5fa);
+  background: rgba(96,165,250,.08);
 }
