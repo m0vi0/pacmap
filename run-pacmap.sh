@@ -9,7 +9,10 @@ if [ ! -x "$PYTHON_BIN" ]; then
   exit 1
 fi
 
-IFACE="$(route -n get default 2>/dev/null | awk '/interface:/{print $2; exit}')"
+if [ "$(uname -s)" = "Linux" ]; then
+  IFACE="$(ip route get 1.1.1.1 2>/dev/null | sed -n 's/.* dev \([^ ]*\).*/\1/p')"
+fi
+IFACE="${IFACE:-$(route -n get default 2>/dev/null | awk '/interface:/{print $2; exit}')}"
 IFACE="${IFACE:-en0}"
 ARGS=(--iface "$IFACE" --app-url http://127.0.0.1:5176)
 if [ "$#" -gt 0 ]; then
