@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { classifyIp, serializeCheckpoint, computeCheckpointDiff, fmtBytes, nodeRealness } from './checkpointEngine.js'
+import { classifyIp, serializeCheckpoint, computeCheckpointDiff, fmtBytes, nodeRealness, portService } from './checkpointEngine.js'
 import './App.css'
 
 const WS_URL = import.meta.env.VITE_WS_URL || (import.meta.env.PROD
@@ -649,6 +649,8 @@ function buildTrafficAnalysis(packets, replayMeta, conversationSort = 'bytes') {
   const protocols = new Map()
   const hostnames = new Map()
   const macNames = new Map()
+  const nodePorts = new Map()
+  const nodeBytes = new Map()
   const timelineBuckets = Array.from({ length: 40 }, () => 0)
   const duration = Math.max(replayMeta?.duration || 0, 0.1)
   let totalBytes = 0
@@ -700,6 +702,30 @@ function buildTrafficAnalysis(packets, replayMeta, conversationSort = 'bytes') {
         endpoints.set(ip, endpoint)
       })
 
+    // Port fingerprinting
+    const sport = Number(packet.srcPort) || null
+    const dport = Number(packet.dstPort) || null
+    if (sport && src) {
+      if (!nodePorts.has(src)) nodePorts.set(src, [])
+      nodePorts.get(src).push({ port: sport, direction: 'out', bytes: size })
+    }
+    if (dport && dst) {
+      if (!nodePorts.has(dst)) nodePorts.set(dst, [])
+      nodePorts.get(dst).push({ port: dport, direction: 'in', bytes: size })
+    }
+
+    // Per-node tx/rx bytes
+    if (src) {
+      const prev = nodeBytes.get(src) || { tx: 0, rx: 0 }
+      prev.tx += size
+      nodeBytes.set(src, prev)
+    }
+    if (dst) {
+      const prev = nodeBytes.get(dst) || { tx: 0, rx: 0 }
+      prev.rx += size
+      nodeBytes.set(dst, prev)
+    }
+
     const protocol = protocols.get(proto) || { proto, bytes: 0, packets: 0 }
     protocol.bytes += size
     protocol.packets += 1
@@ -735,6 +761,8 @@ function buildTrafficAnalysis(packets, replayMeta, conversationSort = 'bytes') {
     protocols: [...protocols.values()].sort((a, b) => b.bytes - a.bytes),
     hostnames,
     macNames,
+    nodePorts,
+    nodeBytes,
     timelineBuckets,
     maxBucket: Math.max(...timelineBuckets, 1),
     totalBytes,
@@ -2983,6 +3011,9 @@ export default function App() {
         .map(([ip, b]) => ({ ip, bytes: b }))
         .sort((a, b) => b.bytes - a.bytes),
       recentPackets: filteredIpPkts.slice(-60).reverse(),
+      ports: trafficAnalysis.nodePorts?.get(selectedIp) || [],
+      bytesTx: trafficAnalysis.nodeBytes?.get(selectedIp)?.tx || 0,
+      bytesRx: trafficAnalysis.nodeBytes?.get(selectedIp)?.rx || 0,
     }
   }, [selectedIp, allAvailablePackets, activeProtocols, activeFilter])
 
@@ -3313,10 +3344,41 @@ export default function App() {
                               <div><dt>IP</dt><dd>{selectedIp}</dd></div>
                               <div><dt>Type</dt><dd>{classifyIp(selectedIp)}</dd></div>
                               {nodeInspectionData.mac && <div><dt>MAC</dt><dd>{nodeInspectionData.mac}</dd></div>}
+                              {hostnamesRef.current?.get(selectedIp) && <div><dt>Name</dt><dd>{hostnamesRef.current.get(selectedIp)}</dd></div>}
+                              <div><dt>Status</dt><dd>{nodeRealness({ ip: selectedIp, mac: nodeInspectionData.mac, packetsTx: nodeInspectionData.bytesTx > 0 ? 1 : 0 }).status}</dd></div>
                               <div><dt>Bytes</dt><dd>{fmtBytes(nodeInspectionData.bytes)}</dd></div>
                               <div><dt>Packets</dt><dd>{nodeInspectionData.packets.toLocaleString()}</dd></div>
                               <div><dt>Protocols</dt><dd>{nodeInspectionData.protocols.join(', ')}</dd></div>
+                              <div>
+                                <dt>Traffic</dt>
+                                <dd>
+                                  <span className="trafficDir">
+                                    <span className="trafficDirTx">↑ {fmtBytes(nodeInspectionData.bytesTx)}</span>
+                                    <span className="trafficDirRx">↓ {fmtBytes(nodeInspectionData.bytesRx)}</span>
+                                  </span>
+                                </dd>
+                              </div>
                             </dl>
+                            {nodeInspectionData.ports.length > 0 && (() => {
+                              const merged = new Map()
+                              nodeInspectionData.ports.forEach(p => {
+                                const key = `${p.port}-${p.direction}`
+                                const prev = merged.get(key) || { port: p.port, direction: p.direction, bytes: 0 }
+                                prev.bytes += p.bytes
+                                merged.set(key, prev)
+                              })
+                              const sorted = [...merged.values()].sort((a, b) => b.bytes - a.bytes)
+                              return (
+                                <div className="portBadges">
+                                  <span className="portBadgesLabel">Ports:</span>
+                                  {sorted.slice(0, 12).map((p, i) => (
+                                    <span key={i} className={`portBadge portBadge--${p.direction}`}>
+                                      {portService(p.port)}
+                                    </span>
+                                  ))}
+                                </div>
+                              )
+                            })()}
                             <button
                               type="button"
                               className="copyFilterBtn"
