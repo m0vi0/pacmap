@@ -44,6 +44,20 @@ A Docker Compose path exists for Linux self-hosting — see `SELFHOSTING.md`. It
 
 macOS capture detail (BPF, `promisc=False`) — see `MACOS.md`. Windows capture requires Npcap — see `WINDOWS.md`.
 
+## Node inspection
+
+Click any node in the graph to open the inspection panel. The **Overview** tab shows:
+
+- **IP, Type, MAC** — basic identity
+- **Name** — DNS hostname if resolved (e.g. `my-macbook.local`)
+- **Status** — realness classification: `confirmed`, `unconfirmed`, or `special`
+- **Bytes / Packets** — total traffic volume
+- **Protocols** — which protocols the node used
+- **Traffic** — send/receive byte breakdown (↑ sent, ↓ received)
+- **Ports** — which ports the node communicated on, sorted by volume
+
+The **Peers** tab lists conversation partners with byte counts. The **Protocols** tab shows protocol breakdown. The **Packets** tab shows recent packet activity with direction arrows.
+
 ## Node realness
 
 Not every IP that appears in a packet is a real host — tools like `nmap` send probes to hundreds of IPs that don't exist, and they show up as phantom nodes in the graph.
