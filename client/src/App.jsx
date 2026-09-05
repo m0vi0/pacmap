@@ -4,9 +4,13 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { classifyIp, serializeCheckpoint, computeCheckpointDiff, fmtBytes, nodeRealness } from './checkpointEngine.js'
 import './App.css'
 
-const WS_URL = import.meta.env.VITE_WS_URL || (import.meta.env.PROD
+const AUTH_TOKEN = new URLSearchParams(window.location.search).get('token') || ''
+const WS_BASE_URL = import.meta.env.VITE_WS_URL || (import.meta.env.PROD
   ? `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`
   : 'ws://127.0.0.1:8765')
+const WS_URL = AUTH_TOKEN
+  ? `${WS_BASE_URL}${WS_BASE_URL.includes('?') ? '&' : '?'}token=${encodeURIComponent(AUTH_TOKEN)}`
+  : WS_BASE_URL
 const MAX_PACKET_PARTICLES = 420
 const LIVE_PACKET_HISTORY_LIMIT = 2000
 const LIVE_PACKET_UI_FLUSH_MS = 1000

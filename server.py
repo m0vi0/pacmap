@@ -2,16 +2,18 @@ import argparse
 import asyncio
 import json
 import os
+import secrets
 import threading
 import time
 import webbrowser
 from collections import defaultdict
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import websockets
 from scapy.all import DNS, ARP, Ether, IP, TCP, UDP, sniff
 
 clients = set()
+AUTH_TOKEN = secrets.token_urlsafe(32)
 ALLOWED_ORIGINS = {
     "http://127.0.0.1:5176",
     "http://localhost:5176",
@@ -54,6 +56,25 @@ async def reject_untrusted_origin(websocket):
 
     await websocket.close(code=1008, reason="Origin not allowed")
     print(f"Rejected websocket origin: {origin}")
+    return True
+
+
+def request_path(websocket):
+    request = getattr(websocket, "request", None)
+    path = getattr(request, "path", None)
+    if path is not None:
+        return path
+    return getattr(websocket, "path", None)
+
+
+async def reject_unauthorized(websocket):
+    path = request_path(websocket) or ""
+    token = parse_qs(urlparse(path).query).get("token", [None])[0]
+    if secrets.compare_digest(token or "", AUTH_TOKEN):
+        return False
+
+    await websocket.close(code=1008, reason="Unauthorized")
+    print("Rejected websocket connection: missing/invalid auth token")
     return True
 
 
@@ -212,6 +233,8 @@ async def send_nodes():
 async def handler(websocket):
     if await reject_untrusted_origin(websocket):
         return
+    if await reject_unauthorized(websocket):
+        return
 
     clients.add(websocket)
     print(f"[+] Client connected. Total: {len(clients)}")
@@ -274,11 +297,13 @@ def open_browser(url):
 if __name__ == "__main__":
     args = parse_args()
     iface = args.iface
+    sep = "&" if "?" in args.app_url else "?"
+    app_url = f"{args.app_url}{sep}token={AUTH_TOKEN}"
 
-    print(f"Open {args.app_url}, then click Start host capture in the browser.")
+    print(f"Open {app_url}, then click Start host capture in the browser.")
     print("Packet capture may require launching this process with sudo/admin privileges.")
 
     if args.open and not args.no_open:
-        open_browser(args.app_url)
+        open_browser(app_url)
 
     asyncio.run(main())
