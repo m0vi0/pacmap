@@ -38,26 +38,6 @@ export function classifyIp(ip) {
   return 'unknown'
 }
 
-// ── Port → Service ───────────────────────────────────────
-
-const PORT_SERVICES = {
-  20: 'FTP-data', 21: 'FTP', 22: 'SSH', 23: 'Telnet', 25: 'SMTP',
-  53: 'DNS', 67: 'DHCP', 68: 'DHCP', 80: 'HTTP', 110: 'POP3',
-  143: 'IMAP', 443: 'HTTPS', 445: 'SMB', 993: 'IMAPS', 995: 'POP3S',
-  1433: 'MSSQL', 3306: 'MySQL', 3389: 'RDP', 5060: 'SIP',
-  5432: 'PostgreSQL', 5900: 'VNC', 6379: 'Redis', 8080: 'HTTP-alt',
-  8443: 'HTTPS-alt', 27017: 'MongoDB',
-}
-
-/**
- * Map a port number to a likely service name.
- * @param {number} port
- * @returns {string} e.g. 'HTTPS', 'SSH', 'DNS', or 'port 12345'
- */
-export function portService(port) {
-  return PORT_SERVICES[port] || `port ${port}`
-}
-
 // ── Serialization ────────────────────────────────────────────
 
 /**

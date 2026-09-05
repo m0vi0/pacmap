@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { classifyIp, serializeCheckpoint, computeCheckpointDiff, fmtBytes, nodeRealness, portService } from './checkpointEngine.js'
+import { classifyIp, serializeCheckpoint, computeCheckpointDiff, fmtBytes, nodeRealness } from './checkpointEngine.js'
 import './App.css'
 
 const WS_URL = import.meta.env.VITE_WS_URL || (import.meta.env.PROD
@@ -3373,7 +3373,7 @@ export default function App() {
                                   <span className="portBadgesLabel">Ports:</span>
                                   {sorted.slice(0, 12).map((p, i) => (
                                     <span key={i} className={`portBadge portBadge--${p.direction}`}>
-                                      {portService(p.port)}
+                                      {p.port}
                                     </span>
                                   ))}
                                 </div>
