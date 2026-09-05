@@ -243,3 +243,20 @@ export function fmtBytes(n) {
   if (abs >= 1024) return `${sign}${(abs / 1024).toFixed(1)} KB`
   return `${sign}${abs} B`
 }
+
+// ── Realness classification ─────────────────────────────────
+
+/**
+ * Classify a graph node's realness.
+ * 'confirmed': unicast host that has transmitted (seen as a source) or has a MAC (L2-reachable peer).
+ * 'unconfirmed': unicast IP seen only as a packet target (rx-only) — likely a dead nmap probe target.
+ * 'special': multicast/broadcast/loopback/link-local — traffic groups, not hosts; never flagged ghost.
+ * @param {{ip:string, mac?:string, packetsTx?:number, packetsRx?:number}} node
+ */
+export function nodeRealness({ ip, mac, packetsTx = 0 }) {
+  const kind = classifyIp(ip)
+  if (kind === 'multicast' || kind === 'broadcast' || kind === 'loopback' || kind === 'link-local' || kind === 'unknown') {
+    return { status: 'special' }
+  }
+  return { status: packetsTx > 0 || !!mac ? 'confirmed' : 'unconfirmed' }
+}
